@@ -8,6 +8,7 @@
 import UIKit
 import RealityKit
 import ARKit
+import Combine
 
 class ViewController: UIViewController {
     
@@ -18,13 +19,13 @@ class ViewController: UIViewController {
         setup()
         cardSetup()
         arView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
-        
-        
+         
     }
     
     func cardSetup(){
         let anchor = AnchorEntity(plane: .horizontal, minimumBounds: [0.4, 0.4])
-
+        
+        //creating our 12 cards
         for _ in 1...12{
             let box = MeshResource.generateBox(width: 0.06, height: 0.01, depth: 0.08)
             let material = SimpleMaterial(color: .systemIndigo, isMetallic: true)
@@ -34,13 +35,59 @@ class ViewController: UIViewController {
             cards.append(model)
         }
         
+        //positioning our cards
         for (index,card) in cards.enumerated(){
-            let x = Float(index % 4) //we used mode so the x goes from 0 to 1 alternating and we just have the z act as the column
-            let z = Float(index / 4)
+            let x = Float(index % 4) - 1.5  //we used mode so the x goes from 0 to 1 alternating and we just have the z act as the column
+            let z = Float(index / 4) - 1.5
             card.position = [x*0.1, 0, z*0.1] //we multiplied it by 0.1 since its in meters we lowers the number so it isnt far away
             //adding the card as a child of the anchor
             anchor.addChild(card)
         }
+        
+        //creating an occlusion box- An invisible box that hides objects rendered behind it.
+        let boxSize: Float = 0.7
+        let occlusionBoxMesh = MeshResource.generateBox(size: boxSize)
+        let occlusionBox = ModelEntity(mesh: occlusionBoxMesh, materials: [OcclusionMaterial()])
+        occlusionBox.position.y = -boxSize/2
+        anchor.addChild(occlusionBox)
+        
+        //sink gives us a subrscriber to our load request and allows us to use a closure that runs when the asset has loaded.
+        var cancelable: AnyCancellable? = nil // this ensures our load request is not deallocated until it is no longer need
+        //loadModel asynchronously loads a request, works like a publisher in combine
+        cancelable = ModelEntity.loadModelAsync(named: "01")
+            .append(ModelEntity.loadModelAsync(named: "02"))
+            .append(ModelEntity.loadModelAsync(named: "03"))
+            .append(ModelEntity.loadModelAsync(named: "04"))
+            .append(ModelEntity.loadModelAsync(named: "05"))
+            .append(ModelEntity.loadModelAsync(named: "06"))
+            .collect() //Collects all received elements, and emits a single array of the collection when the upstream publisher finishes.
+            .sink(receiveCompletion: { error in
+                print("Error: \(error)")
+                cancelable?.cancel()
+            }, receiveValue: { entities in
+                //scale them down, generate collision shapes
+                var objects: [ModelEntity] = []
+                
+                for entity in entities{
+                    entity.setScale(SIMD3<Float>(0.002,0.002,0.002), relativeTo: anchor)
+                    entity.generateCollisionShapes(recursive: true)
+                    for _ in 1...2{
+                        objects.append(entity.clone(recursive: true))
+                    }
+                }
+                
+                objects.shuffle() //shuffles the collection in place
+                
+                for (index, object) in objects.enumerated(){
+                    self.cards[index].addChild(object)
+                    //rotated it so we dont see models when app starts
+                    self.cards[index].transform.rotation = simd_quatf(angle: .pi, axis: [1,0,0])
+                }
+                // When implementing Cancellable in support of a custom publisher, implement cancel() to request that your publisher stop calling its downstream subscribers. Canceling should also eliminate any strong references it currently holds.
+                cancelable?.cancel()
+                
+            })
+        
         arView.scene.addAnchor(anchor)
         
     }
