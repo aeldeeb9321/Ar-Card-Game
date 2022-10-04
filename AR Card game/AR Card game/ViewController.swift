@@ -11,9 +11,14 @@ import ARKit
 import Combine
 
 class ViewController: UIViewController {
+    //MARK: - Properties
     
     @IBOutlet var arView: ARView!
     var cards: [Entity] = []
+    var cancelable: AnyCancellable? = nil
+    
+    //MARK: - LifeCycle
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         setup()
@@ -21,6 +26,8 @@ class ViewController: UIViewController {
         arView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
          
     }
+    
+    //MARK: - Helpers
     
     func cardSetup(){
         let anchor = AnchorEntity(plane: .horizontal, minimumBounds: [0.4, 0.4])
@@ -30,16 +37,16 @@ class ViewController: UIViewController {
             let box = MeshResource.generateBox(width: 0.06, height: 0.01, depth: 0.08)
             let material = SimpleMaterial(color: .systemIndigo, isMetallic: true)
             let model = ModelEntity(mesh: box, materials: [material])
-            //Top press on these boxes/ cards we generate collisionshapes so we can touch these objects
+            //To press on these boxes/ cards we generate collisionshapes so we can touch these objects
             model.generateCollisionShapes(recursive: true)
             cards.append(model)
         }
         
         //positioning our cards
         for (index,card) in cards.enumerated(){
-            let x = Float(index % 4) - 1.5  //we used mode so the x goes from 0 to 1 alternating and we just have the z act as the column
+            let x = Float(index % 4) - 1.5  //we used mod so the x goes from 0 to 3 alternating and we just have the z axis as the column
             let z = Float(index / 4) - 1.5
-            card.position = [x*0.1, 0, z*0.1] //we multiplied it by 0.1 since its in meters we lowers the number so it isnt far away
+            card.position = [x*0.1, 0, z*0.1] //we multiplied it by 0.1 since its in meters I lowered the number so it isnt far away
             //adding the card as a child of the anchor
             anchor.addChild(card)
         }
@@ -51,8 +58,8 @@ class ViewController: UIViewController {
         occlusionBox.position.y = -boxSize/2
         anchor.addChild(occlusionBox)
         
-        //sink gives us a subrscriber to our load request and allows us to use a closure that runs when the asset has loaded.
-        var cancelable: AnyCancellable? = nil // this ensures our load request is not deallocated until it is no longer need
+        //sink gives us a subscriber to our load request and allows us to use a closure that runs when the asset has loaded.
+         // this ensures our load request is not deallocated until it is no longer need
         //loadModel asynchronously loads a request, works like a publisher in combine
         cancelable = ModelEntity.loadModelAsync(named: "01")
             .append(ModelEntity.loadModelAsync(named: "02"))
@@ -61,9 +68,9 @@ class ViewController: UIViewController {
             .append(ModelEntity.loadModelAsync(named: "05"))
             .append(ModelEntity.loadModelAsync(named: "06"))
             .collect() //Collects all received elements, and emits a single array of the collection when the upstream publisher finishes.
-            .sink(receiveCompletion: { error in
+            .sink(receiveCompletion: { [weak self] error in
                 print("Error: \(error)")
-                cancelable?.cancel()
+                self?.cancelable?.cancel()
             }, receiveValue: { entities in
                 //scale them down, generate collision shapes
                 var objects: [ModelEntity] = []
@@ -84,7 +91,7 @@ class ViewController: UIViewController {
                     self.cards[index].transform.rotation = simd_quatf(angle: .pi, axis: [1,0,0])
                 }
                 // When implementing Cancellable in support of a custom publisher, implement cancel() to request that your publisher stop calling its downstream subscribers. Canceling should also eliminate any strong references it currently holds.
-                cancelable?.cancel()
+                self.cancelable?.cancel()
                 
             })
         
@@ -101,6 +108,8 @@ class ViewController: UIViewController {
         arView.session.run(configuration)
     }
     
+    //MARK: - Selectors
+    
     //When the user taps the card it flipts, if its already been flipped we flip it the other way
     @objc func handleTap(sender: UITapGestureRecognizer){
         let tapLocation = sender.location(in: arView)
@@ -109,6 +118,7 @@ class ViewController: UIViewController {
             if card.transform.rotation.angle ==  .pi{ //the card is already rotated 180 degrees
                 var flipDownTransform = card.transform //start with the current transform card has
                 flipDownTransform.rotation = simd_quatf(angle: 0, axis: [1,0,0]) //since its already flipped we want to make the angle 0 so we can make it vertical again to flip
+                //.move method moves an entity over a period of time to a new location given by a transform.
                 //The timing function that controls the progress of the animation. We are making our card move to the transform we just made
                 card.move(to: flipDownTransform, relativeTo: card.parent, duration: 0.25, timingFunction: .easeInOut)
             }else{ //if the card hasnt been rotated yet
